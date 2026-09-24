@@ -125,3 +125,7 @@ The following results were measured on **24 September 2026 at 20:50 UTC** agains
 - **Geographic search:** The SQL query uses the Haversine formula with Earth's mean radius of 6,371.0088 km. This keeps setup simple for a small dataset; list and search results use deterministic ordering.
 - **Documentation:** Swagger UI and the OpenAPI document are generated from the route schemas used by the running API.
 - **Money:** The task does not define currencies or billing periods, so `price` is an integer in naira. The accepted range is capped below JavaScript's safe integer limit.
+
+## With more time
+
+The first thing I'd revisit is search. Right now it calculates distance for every listing. That keeps this task simple, but I'd switch to PostGIS and a spatial index if the listings table grew large. Once agent accounts exist, I'd add sign-in and make sure agents can edit only their own listings. I'd also add currency and rental-period fields instead of relying on the current naira assumption.
