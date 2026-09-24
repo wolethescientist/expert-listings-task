@@ -1,15 +1,22 @@
 # Property Listings API
 
-A small Node.js/TypeScript REST API for the Expert Listing backend task. It provides listing CRUD, paginated listing and geospatial search, validation, consistent errors, and integration tests.
+[![CI](https://github.com/wolethescientist/expert-listings-task/actions/workflows/ci.yml/badge.svg)](https://github.com/wolethescientist/expert-listings-task/actions/workflows/ci.yml)
 
-The listing API is versioned under `/api/v1`. Breaking API changes can be introduced under a future `/api/v2` prefix. `/health` is unversioned because it reports process status rather than a listing resource.
+A versioned REST API for property listings, built with **Node.js, TypeScript, Fastify, and PostgreSQL**. It supports CRUD, geographic search with filters, pagination, request validation, and interactive OpenAPI documentation.
 
-## Requirements
+**Explore locally:** [Swagger UI](http://localhost:3000/docs/) · [OpenAPI JSON](http://localhost:3000/docs/json) · [OpenAPI YAML](http://localhost:3000/docs/yaml)
 
-- Node.js 22 or newer and npm
-- Docker with Compose for PostgreSQL (or an existing PostgreSQL 17 database)
+## Quick start
 
-## Run locally
+Run the API and PostgreSQL together with Docker:
+
+```bash
+docker compose --profile app up -d --build
+```
+
+Open [http://localhost:3000/docs/](http://localhost:3000/docs/). The app container waits for PostgreSQL and applies the idempotent migration before starting. Swagger UI includes a ready-to-use create-listing example; select **Try it out**, then **Execute**.
+
+For local development with Node.js 22 or newer:
 
 ```bash
 cp .env.example .env
@@ -19,32 +26,25 @@ npm run db:migrate
 npm run dev
 ```
 
-The API listens on `http://localhost:3000`. Check `GET /health` to confirm it is running. To run the app and database entirely in containers, use `docker compose --profile app up --build` instead; the app container applies the idempotent migration at startup.
+The API listens on port `3000`. `GET /health` reports process status. The database runs on port `5432`; the separate test database runs on port `5433` when started.
 
-Open **[Swagger UI](http://localhost:3000/docs/)** in a browser to inspect and try every endpoint. The generated OpenAPI 3 document is available at `http://localhost:3000/docs/json`. Swagger UI sends requests to the same server; create a listing there first, then use its returned ID to try the read, update, and delete operations.
+## API reference
 
-To run tests, start the separate test database and run:
+All listing routes use the `/api/v1` prefix. `/health` and documentation routes are unversioned.
 
-```bash
-docker compose up -d db-test
-npm test
-```
-
-`TEST_DATABASE_URL` must point to a database named `listings_test`. Tests clear its `listings` table between cases. CI runs the same type check, build, and test commands against a PostgreSQL service.
-
-## API
-
-| Method | Path | Purpose |
+| Method | Route | Result |
 | --- | --- | --- |
-| `POST` | `/api/v1/listings` | Create a listing |
+| `POST` | `/api/v1/listings` | Create a listing; `201` and a `Location` header |
 | `GET` | `/api/v1/listings` | List listings, newest first |
-| `GET` | `/api/v1/listings/:id` | Get one listing |
-| `PATCH` | `/api/v1/listings/:id` | Update supplied fields |
-| `DELETE` | `/api/v1/listings/:id` | Delete a listing |
-| `GET` | `/api/v1/listings/search` | Search and sort by distance |
+| `GET` | `/api/v1/listings/:id` | Read a listing |
+| `PATCH` | `/api/v1/listings/:id` | Update one or more fields |
+| `DELETE` | `/api/v1/listings/:id` | Delete a listing; `204` |
+| `GET` | `/api/v1/listings/search` | Search by distance and optional filters |
 | `GET` | `/health` | Process health check |
+| `GET` | `/docs/` | Interactive Swagger UI |
+| `GET` | `/docs/json`, `/docs/yaml` | Generated OpenAPI 3 specification |
 
-Create a listing:
+### Create a listing
 
 ```bash
 curl -X POST http://localhost:3000/api/v1/listings \
@@ -59,39 +59,73 @@ curl -X POST http://localhost:3000/api/v1/listings \
   }'
 ```
 
-`price` is a non-negative whole number in Nigerian naira. `type` is `rent`, `sale`, or `shortlet`. The address is free text; `lat` and `lng` are decimal degrees. `agentId` is a UUID. `PATCH` accepts any non-empty subset of the listing fields; if `location` is supplied, include all three location fields.
+`price` is a whole number in Nigerian naira. `type` is `rent`, `sale`, or `shortlet`. Coordinates are decimal degrees. `agentId` is a UUID. A `PATCH` body may contain any non-empty subset of listing fields; a location update must supply `address`, `lat`, and `lng` together.
 
-Search within 5 km of a point, with optional filters:
+### Search nearby listings
 
 ```bash
 curl 'http://localhost:3000/api/v1/listings/search?lat=6.4474&lng=3.4737&radiusKm=5&type=sale&minPrice=40000000&maxPrice=60000000&bedrooms=3&page=1&limit=20'
 ```
 
-`lat`, `lng`, and `radiusKm` are required for search. `type`, `minPrice`, `maxPrice`, and `bedrooms` are optional. Price bounds and the radius are inclusive; bedrooms is an exact match. Results are sorted by distance ascending, then ID for a stable tie break. Search results include `distanceKm`, rounded to three decimals for display. The radius comparison uses the unrounded distance.
+| Parameter | Rule |
+| --- | --- |
+| `lat`, `lng`, `radiusKm` | Required. Latitude: −90 to 90; longitude: −180 to 180; radius: greater than 0 and at most 20,000 km. |
+| `type` | Optional: `rent`, `sale`, or `shortlet`. |
+| `minPrice`, `maxPrice` | Optional inclusive bounds; `minPrice` must not exceed `maxPrice`. |
+| `bedrooms` | Optional exact match. |
+| `page`, `limit` | Optional on list and search. Defaults: page `1`, limit `20`; limit maximum `100`. |
 
-Both `GET /api/v1/listings` and search accept `page` (default `1`) and `limit` (default `20`, maximum `100`). They return:
+Search results within the radius are ordered by distance, then ID. Each result includes `distanceKm`, rounded to three decimals for display. The radius filter uses the unrounded distance. List and search responses include `data` and `pagination` (`page`, `limit`, `total`, `totalPages`).
 
-```json
-{
-  "data": [],
-  "pagination": { "page": 1, "limit": 20, "total": 0, "totalPages": 0 }
-}
+Invalid input returns `400`, an unknown listing returns `404`, and unexpected failures return `500`. Errors use `{ "error": { "code": "...", "message": "..." } }`; internal details are not returned to clients.
+
+## Verification
+
+### Automated tests
+
+Start the isolated PostgreSQL test database, then run the suites separately or together:
+
+```bash
+docker compose up -d db-test
+npm run test:unit
+npm run test:integration
+npm test
 ```
 
-Single-listing responses use `{ "data": { ... } }`. `POST` returns `201` and a `Location` header; `DELETE` returns `204`. Errors use `{ "error": { "code": "...", "message": "..." } }`. Invalid input returns `400`, missing listings return `404`, and unexpected failures return `500` without exposing internal details.
+| Suite | Result | What it covers |
+| --- | ---: | --- |
+| [Unit tests](tests/unit.test.ts) | **4 passed / 4** | Empty and partial pagination, large price serialization, geographic distance display rounding. |
+| [Integration tests](tests/api.test.ts) | **9 passed / 9** | CRUD, v1 routing, Swagger/OpenAPI, combined filters, location changes, radius boundaries, pagination, malformed input, and errors against a real PostgreSQL test database. |
+
+The integration suite uses `listings_test` and clears its listing table between cases. The CI workflow runs type checking, a build, and both suites.
+
+### Endpoint checks and response times
+
+Run `npm run smoke` while the app is running. The [smoke script](scripts/smoke.mjs) calls every public route, verifies status and response content, confirms deletion, and removes its temporary listings. Set `BASE_URL` to test another deployment, or `SMOKE_SAMPLES` to change the sample count.
+
+The following results were measured on **24 September 2026 at 20:50 UTC** against the local Docker app (Node.js 22) and PostgreSQL 17. Each route received **30 sequential requests**. Timings are client-observed round trips in milliseconds, including the full response body. They are a local snapshot, not a production load benchmark.
+
+| Endpoint | Status | Requests | Median | p95 |
+| --- | ---: | ---: | ---: | ---: |
+| `POST /api/v1/listings` | 201 | 30 | 3.59 ms | 23.45 ms |
+| `GET /api/v1/listings` | 200 | 30 | 4.11 ms | 7.62 ms |
+| `GET /api/v1/listings/:id` | 200 | 30 | 3.03 ms | 5.79 ms |
+| `PATCH /api/v1/listings/:id` | 200 | 30 | 3.90 ms | 8.07 ms |
+| `DELETE /api/v1/listings/:id` | 204 | 30 | 3.53 ms | 6.58 ms |
+| `GET /api/v1/listings/search` | 200 | 30 | 4.63 ms | 8.25 ms |
+| `GET /health` | 200 | 30 | 2.30 ms | 3.57 ms |
+| `GET /docs/` | 200 | 30 | 2.25 ms | 4.25 ms |
+| `GET /docs/json` | 200 | 30 | 2.51 ms | 4.32 ms |
+| `GET /docs/yaml` | 200 | 30 | 2.69 ms | 5.63 ms |
 
 ## Design choices
 
-- PostgreSQL stores listing fields with database checks as a second line of validation. `agentId` is stored as an ID because the task does not define an agents API or authentication model.
-- Fastify JSON Schema validates request bodies, path parameters, and query strings. Unknown fields are rejected. SQL values are parameterized.
-- OpenAPI 3 documentation is generated from those same route schemas and served through Swagger UI, so the browser forms stay aligned with the API.
-- Search calculates great-circle distance with the Haversine formula using Earth's mean radius of 6,371.0088 km. This keeps the exercise self-contained without requiring a PostgreSQL extension. Search and list queries use deterministic ordering.
-- The code separates HTTP routes, validation schemas, database queries, and serialization. Tests send HTTP requests through Fastify and use a real, separate PostgreSQL database.
+- **Validation and errors:** Fastify JSON Schema validates bodies, paths, and queries. Unknown fields are rejected; the database has matching constraints as a second check.
+- **Data access:** PostgreSQL queries are parameterized. `agentId` is stored as an ID because the exercise does not define agents or authentication.
+- **Geographic search:** The SQL query uses the Haversine formula with Earth's mean radius of 6,371.0088 km. This keeps setup simple for a small dataset; list and search results use deterministic ordering.
+- **Documentation:** Swagger UI and the OpenAPI document are generated from the route schemas used by the running API.
+- **Money:** The task does not define currencies or billing periods, so `price` is an integer in naira. The accepted range is capped below JavaScript's safe integer limit.
 
 ## With more time
 
-- Add authentication and authorization so agents can manage only their own listings.
-- Add currency and rental billing period fields; the task does not define these.
-- Use PostGIS with a spatial index for large datasets and add query performance benchmarks.
-- Add database readiness checks and deployment-specific monitoring.
-- For very large result sets, consider cursor pagination and a single-snapshot strategy for rows and counts under concurrent writes.
+Add agent authentication and ownership checks; explicit currency and rental-period fields; PostGIS with a spatial index for larger datasets; database readiness and monitoring; and cursor pagination for very large result sets.
