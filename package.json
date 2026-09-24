@@ -13,6 +13,9 @@
     "start": "node dist/src/server.js",
     "db:migrate": "tsx scripts/migrate.ts",
     "test": "node --import tsx --test tests/*.test.ts",
+    "test:unit": "node --import tsx --test tests/unit.test.ts",
+    "test:integration": "node --import tsx --test tests/api.test.ts",
+    "smoke": "node scripts/smoke.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

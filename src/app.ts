@@ -7,14 +7,11 @@ import {
   listingPageEnvelope, patchListingSchema, searchPageEnvelope, searchSchema,
 } from './schemas.js';
 import { createListing, deleteListing, getListing, listListings, searchListings, updateListing } from './repository.js';
+import { pagination } from './pagination.js';
 import { toListing } from './types.js';
 import type { ListingInput, ListingPatch, PaginationQuery, SearchQuery } from './types.js';
 
 interface IdParams { id: string }
-
-function pagination(page: number, limit: number, total: number) {
-  return { page, limit, total, totalPages: Math.ceil(total / limit) };
-}
 
 export function buildApp(pool: pg.Pool, options: { logger?: boolean } = {}) {
   const app = Fastify({ logger: options.logger ?? true, ajv: { customOptions: { removeAdditional: false } } });
