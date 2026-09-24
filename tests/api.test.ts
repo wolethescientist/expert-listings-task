@@ -7,7 +7,9 @@ import pg from 'pg';
 import { buildApp } from '../src/app.js';
 
 const testUrl = process.env.TEST_DATABASE_URL ?? 'postgres://listings:listings@localhost:5433/listings_test';
-if (!testUrl.includes('listings_test')) throw new Error('TEST_DATABASE_URL must point to a listings_test database');
+if (decodeURIComponent(new URL(testUrl).pathname) !== '/listings_test') {
+  throw new Error('TEST_DATABASE_URL must point to a listings_test database');
+}
 const pool = new pg.Pool({ connectionString: testUrl });
 let app: FastifyInstance;
 
@@ -82,6 +84,22 @@ test('search combines radius, type, price, and bedroom filters', async () => {
   assert.equal(response.json().data[0].distanceKm, 0);
 });
 
+test('updating a location changes geographic search results', async () => {
+  const created = await create();
+  const moved = await app.inject({
+    method: 'PATCH',
+    url: `/listings/${created.id}`,
+    payload: { location: { address: 'Abuja', lat: 9.0765, lng: 7.3986 } },
+  });
+  assert.equal(moved.statusCode, 200, moved.body);
+  assert.equal(moved.json().data.location.address, 'Abuja');
+
+  const lagos = await app.inject({ method: 'GET', url: '/listings/search?lat=6.4474&lng=3.4737&radiusKm=5' });
+  const abuja = await app.inject({ method: 'GET', url: '/listings/search?lat=9.0765&lng=7.3986&radiusKm=5' });
+  assert.equal(lagos.json().pagination.total, 0);
+  assert.equal(abuja.json().data[0].id, created.id);
+});
+
 test('search includes a listing on the radius boundary and excludes one outside it', async () => {
   await create();
   await create(listing({ title: 'One degree away', location: { address: 'North', lat: 7.4474, lng: 3.4737 } }));
@@ -127,6 +145,12 @@ test('rejects malformed input, impossible filters, and unknown resources', async
 
   const badCoordinates = await app.inject({ method: 'GET', url: '/listings/search?lat=91&lng=3&radiusKm=5' });
   assert.equal(badCoordinates.statusCode, 400);
+
+  const unknownField = await app.inject({ method: 'POST', url: '/listings', payload: listing({ unrequested: true }) });
+  assert.equal(unknownField.statusCode, 400);
+
+  const invalidPage = await app.inject({ method: 'GET', url: '/listings?page=0&limit=101' });
+  assert.equal(invalidPage.statusCode, 400);
 
   const badRange = await app.inject({ method: 'GET', url: '/listings/search?lat=6&lng=3&radiusKm=5&minPrice=100&maxPrice=50' });
   assert.equal(badRange.statusCode, 400);
