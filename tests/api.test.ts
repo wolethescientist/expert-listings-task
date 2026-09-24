@@ -79,6 +79,29 @@ test('listing routes use the v1 prefix', async () => {
   assert.equal(unversioned.statusCode, 404);
 });
 
+test('serves interactive documentation and a complete OpenAPI document', async () => {
+  const html = await app.inject({ method: 'GET', url: '/docs/' });
+  assert.equal(html.statusCode, 200, html.body);
+  assert.match(html.headers['content-type'] ?? '', /text\/html/);
+  assert.match(html.body, /swagger-ui/);
+
+  const specResponse = await app.inject({ method: 'GET', url: '/docs/json' });
+  assert.equal(specResponse.statusCode, 200, specResponse.body);
+  const spec = specResponse.json();
+  assert.equal(spec.openapi, '3.0.3');
+  assert.equal(spec.info.title, 'Property Listings API');
+  assert.ok(spec.paths['/api/v1/listings'].post.requestBody);
+  assert.equal(spec.paths['/api/v1/listings'].post.requestBody.content['application/json'].example.title, 'Three-bedroom apartment in Lekki');
+  assert.ok(spec.paths['/api/v1/listings'].post.responses['201']);
+  assert.ok(spec.paths['/api/v1/listings'].get);
+  assert.ok(spec.paths['/api/v1/listings/search'].get.parameters.some((item: { name: string }) => item.name === 'radiusKm'));
+  assert.ok(spec.paths['/api/v1/listings/{id}'].patch);
+  assert.ok(spec.paths['/api/v1/listings/{id}'].delete);
+
+  const assets = await app.inject({ method: 'GET', url: '/docs/static/swagger-ui-bundle.js' });
+  assert.equal(assets.statusCode, 200);
+});
+
 test('search combines radius, type, price, and bedroom filters', async () => {
   const wanted = await create();
   await create(listing({ title: 'Nearby rental', type: 'rent' }));

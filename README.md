@@ -21,6 +21,8 @@ npm run dev
 
 The API listens on `http://localhost:3000`. Check `GET /health` to confirm it is running. To run the app and database entirely in containers, use `docker compose --profile app up --build` instead; the app container applies the idempotent migration at startup.
 
+Open **[Swagger UI](http://localhost:3000/docs/)** in a browser to inspect and try every endpoint. The generated OpenAPI 3 document is available at `http://localhost:3000/docs/json`. Swagger UI sends requests to the same server; create a listing there first, then use its returned ID to try the read, update, and delete operations.
+
 To run tests, start the separate test database and run:
 
 ```bash
@@ -82,6 +84,7 @@ Single-listing responses use `{ "data": { ... } }`. `POST` returns `201` and a `
 
 - PostgreSQL stores listing fields with database checks as a second line of validation. `agentId` is stored as an ID because the task does not define an agents API or authentication model.
 - Fastify JSON Schema validates request bodies, path parameters, and query strings. Unknown fields are rejected. SQL values are parameterized.
+- OpenAPI 3 documentation is generated from those same route schemas and served through Swagger UI, so the browser forms stay aligned with the API.
 - Search calculates great-circle distance with the Haversine formula using Earth's mean radius of 6,371.0088 km. This keeps the exercise self-contained without requiring a PostgreSQL extension. Search and list queries use deterministic ordering.
 - The code separates HTTP routes, validation schemas, database queries, and serialization. Tests send HTTP requests through Fastify and use a real, separate PostgreSQL database.
 
@@ -90,5 +93,5 @@ Single-listing responses use `{ "data": { ... } }`. `POST` returns `201` and a `
 - Add authentication and authorization so agents can manage only their own listings.
 - Add currency and rental billing period fields; the task does not define these.
 - Use PostGIS with a spatial index for large datasets and add query performance benchmarks.
-- Generate an OpenAPI specification and add deployment health/readiness checks.
+- Add database readiness checks and deployment-specific monitoring.
 - For very large result sets, consider cursor pagination and a single-snapshot strategy for rows and counts under concurrent writes.
