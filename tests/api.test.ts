@@ -25,8 +25,9 @@ const listing = (overrides: Record<string, unknown> = {}) => ({
 });
 
 async function create(payload = listing()) {
-  const response = await app.inject({ method: 'POST', url: '/listings', payload });
+  const response = await app.inject({ method: 'POST', url: '/api/v1/listings', payload });
   assert.equal(response.statusCode, 201, response.body);
+  assert.equal(response.headers.location, `/api/v1/listings/${response.json().data.id}`);
   return response.json().data;
 }
 
@@ -51,24 +52,31 @@ test('creates, reads, updates, lists, and deletes a listing', async () => {
   assert.equal(created.price, 50000000);
   assert.equal(created.location.lat, 6.4474);
 
-  const read = await app.inject({ method: 'GET', url: `/listings/${created.id}` });
+  const read = await app.inject({ method: 'GET', url: `/api/v1/listings/${created.id}` });
   assert.equal(read.statusCode, 200);
   assert.equal(read.json().data.title, 'Lekki apartment');
 
-  const updated = await app.inject({ method: 'PATCH', url: `/listings/${created.id}`, payload: { price: 45000000, bedrooms: 4 } });
+  const updated = await app.inject({ method: 'PATCH', url: `/api/v1/listings/${created.id}`, payload: { price: 45000000, bedrooms: 4 } });
   assert.equal(updated.statusCode, 200, updated.body);
   assert.equal(updated.json().data.price, 45000000);
   assert.equal(updated.json().data.bedrooms, 4);
 
-  const list = await app.inject({ method: 'GET', url: '/listings' });
+  const list = await app.inject({ method: 'GET', url: '/api/v1/listings' });
   assert.equal(list.json().pagination.total, 1);
   assert.equal(list.json().data[0].id, created.id);
 
-  const deleted = await app.inject({ method: 'DELETE', url: `/listings/${created.id}` });
+  const deleted = await app.inject({ method: 'DELETE', url: `/api/v1/listings/${created.id}` });
   assert.equal(deleted.statusCode, 204);
-  const missing = await app.inject({ method: 'GET', url: `/listings/${created.id}` });
+  const missing = await app.inject({ method: 'GET', url: `/api/v1/listings/${created.id}` });
   assert.equal(missing.statusCode, 404);
   assert.equal(missing.json().error.code, 'LISTING_NOT_FOUND');
+});
+
+test('listing routes use the v1 prefix', async () => {
+  const versioned = await app.inject({ method: 'GET', url: '/api/v1/listings' });
+  const unversioned = await app.inject({ method: 'GET', url: '/listings' });
+  assert.equal(versioned.statusCode, 200);
+  assert.equal(unversioned.statusCode, 404);
 });
 
 test('search combines radius, type, price, and bedroom filters', async () => {
@@ -77,7 +85,7 @@ test('search combines radius, type, price, and bedroom filters', async () => {
   await create(listing({ title: 'Expensive sale', price: 90000000 }));
   await create(listing({ title: 'Abuja sale', location: { address: 'Abuja', lat: 9.0765, lng: 7.3986 } }));
 
-  const response = await app.inject({ method: 'GET', url: '/listings/search?lat=6.4474&lng=3.4737&radiusKm=5&type=sale&minPrice=40000000&maxPrice=60000000&bedrooms=3' });
+  const response = await app.inject({ method: 'GET', url: '/api/v1/listings/search?lat=6.4474&lng=3.4737&radiusKm=5&type=sale&minPrice=40000000&maxPrice=60000000&bedrooms=3' });
   assert.equal(response.statusCode, 200, response.body);
   assert.equal(response.json().pagination.total, 1);
   assert.equal(response.json().data[0].id, wanted.id);
@@ -88,14 +96,14 @@ test('updating a location changes geographic search results', async () => {
   const created = await create();
   const moved = await app.inject({
     method: 'PATCH',
-    url: `/listings/${created.id}`,
+    url: `/api/v1/listings/${created.id}`,
     payload: { location: { address: 'Abuja', lat: 9.0765, lng: 7.3986 } },
   });
   assert.equal(moved.statusCode, 200, moved.body);
   assert.equal(moved.json().data.location.address, 'Abuja');
 
-  const lagos = await app.inject({ method: 'GET', url: '/listings/search?lat=6.4474&lng=3.4737&radiusKm=5' });
-  const abuja = await app.inject({ method: 'GET', url: '/listings/search?lat=9.0765&lng=7.3986&radiusKm=5' });
+  const lagos = await app.inject({ method: 'GET', url: '/api/v1/listings/search?lat=6.4474&lng=3.4737&radiusKm=5' });
+  const abuja = await app.inject({ method: 'GET', url: '/api/v1/listings/search?lat=9.0765&lng=7.3986&radiusKm=5' });
   assert.equal(lagos.json().pagination.total, 0);
   assert.equal(abuja.json().data[0].id, created.id);
 });
@@ -104,12 +112,12 @@ test('search includes a listing on the radius boundary and excludes one outside 
   await create();
   await create(listing({ title: 'One degree away', location: { address: 'North', lat: 7.4474, lng: 3.4737 } }));
 
-  const near = await app.inject({ method: 'GET', url: '/listings/search?lat=6.4474&lng=3.4737&radiusKm=111.196' });
+  const near = await app.inject({ method: 'GET', url: '/api/v1/listings/search?lat=6.4474&lng=3.4737&radiusKm=111.196' });
   assert.equal(near.statusCode, 200, near.body);
   assert.equal(near.json().pagination.total, 2);
   assert.ok(near.json().data[1].distanceKm <= 111.196);
 
-  const smaller = await app.inject({ method: 'GET', url: '/listings/search?lat=6.4474&lng=3.4737&radiusKm=111' });
+  const smaller = await app.inject({ method: 'GET', url: '/api/v1/listings/search?lat=6.4474&lng=3.4737&radiusKm=111' });
   assert.equal(smaller.json().pagination.total, 1);
 });
 
@@ -117,8 +125,8 @@ test('pagination has a total count and stable, non-overlapping pages', async () 
   await create(listing({ title: 'First' }));
   await create(listing({ title: 'Second' }));
   await create(listing({ title: 'Third' }));
-  const first = (await app.inject({ method: 'GET', url: '/listings?page=1&limit=2' })).json();
-  const second = (await app.inject({ method: 'GET', url: '/listings?page=2&limit=2' })).json();
+  const first = (await app.inject({ method: 'GET', url: '/api/v1/listings?page=1&limit=2' })).json();
+  const second = (await app.inject({ method: 'GET', url: '/api/v1/listings?page=2&limit=2' })).json();
   assert.deepEqual(first.pagination, { page: 1, limit: 2, total: 3, totalPages: 2 });
   assert.equal(first.data.length, 2);
   assert.equal(second.data.length, 1);
@@ -130,8 +138,8 @@ test('search paginates nearest listings first', async () => {
   await create(listing({ title: 'North', location: { address: 'North', lat: 6.4574, lng: 3.4737 } }));
   const farther = await create(listing({ title: 'Farther north', location: { address: 'Farther north', lat: 6.4674, lng: 3.4737 } }));
 
-  const first = (await app.inject({ method: 'GET', url: '/listings/search?lat=6.4474&lng=3.4737&radiusKm=5&page=1&limit=2' })).json();
-  const second = (await app.inject({ method: 'GET', url: '/listings/search?lat=6.4474&lng=3.4737&radiusKm=5&page=2&limit=2' })).json();
+  const first = (await app.inject({ method: 'GET', url: '/api/v1/listings/search?lat=6.4474&lng=3.4737&radiusKm=5&page=1&limit=2' })).json();
+  const second = (await app.inject({ method: 'GET', url: '/api/v1/listings/search?lat=6.4474&lng=3.4737&radiusKm=5&page=2&limit=2' })).json();
   assert.deepEqual(first.pagination, { page: 1, limit: 2, total: 3, totalPages: 2 });
   assert.equal(first.data[0].id, closest.id);
   assert.equal(second.data[0].id, farther.id);
@@ -139,30 +147,30 @@ test('search paginates nearest listings first', async () => {
 });
 
 test('rejects malformed input, impossible filters, and unknown resources', async () => {
-  const badBody = await app.inject({ method: 'POST', url: '/listings', payload: listing({ price: -1 }) });
+  const badBody = await app.inject({ method: 'POST', url: '/api/v1/listings', payload: listing({ price: -1 }) });
   assert.equal(badBody.statusCode, 400);
   assert.equal(badBody.json().error.code, 'VALIDATION_ERROR');
 
-  const badCoordinates = await app.inject({ method: 'GET', url: '/listings/search?lat=91&lng=3&radiusKm=5' });
+  const badCoordinates = await app.inject({ method: 'GET', url: '/api/v1/listings/search?lat=91&lng=3&radiusKm=5' });
   assert.equal(badCoordinates.statusCode, 400);
 
-  const unknownField = await app.inject({ method: 'POST', url: '/listings', payload: listing({ unrequested: true }) });
+  const unknownField = await app.inject({ method: 'POST', url: '/api/v1/listings', payload: listing({ unrequested: true }) });
   assert.equal(unknownField.statusCode, 400);
 
-  const invalidPage = await app.inject({ method: 'GET', url: '/listings?page=0&limit=101' });
+  const invalidPage = await app.inject({ method: 'GET', url: '/api/v1/listings?page=0&limit=101' });
   assert.equal(invalidPage.statusCode, 400);
 
-  const badRange = await app.inject({ method: 'GET', url: '/listings/search?lat=6&lng=3&radiusKm=5&minPrice=100&maxPrice=50' });
+  const badRange = await app.inject({ method: 'GET', url: '/api/v1/listings/search?lat=6&lng=3&radiusKm=5&minPrice=100&maxPrice=50' });
   assert.equal(badRange.statusCode, 400);
   assert.equal(badRange.json().error.code, 'INVALID_PRICE_RANGE');
 
-  const invalidId = await app.inject({ method: 'GET', url: '/listings/not-a-uuid' });
+  const invalidId = await app.inject({ method: 'GET', url: '/api/v1/listings/not-a-uuid' });
   assert.equal(invalidId.statusCode, 400);
 
-  const malformedJson = await app.inject({ method: 'POST', url: '/listings', headers: { 'content-type': 'application/json' }, payload: '{' });
+  const malformedJson = await app.inject({ method: 'POST', url: '/api/v1/listings', headers: { 'content-type': 'application/json' }, payload: '{' });
   assert.equal(malformedJson.statusCode, 400);
   assert.equal(malformedJson.json().error.code, 'REQUEST_ERROR');
 
-  const missing = await app.inject({ method: 'PATCH', url: '/listings/00000000-0000-4000-8000-000000000000', payload: { title: 'Changed' } });
+  const missing = await app.inject({ method: 'PATCH', url: '/api/v1/listings/00000000-0000-4000-8000-000000000000', payload: { title: 'Changed' } });
   assert.equal(missing.statusCode, 404);
 });

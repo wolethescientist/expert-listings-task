@@ -2,6 +2,8 @@
 
 A small Node.js/TypeScript REST API for the Expert Listing backend task. It provides listing CRUD, paginated listing and geospatial search, validation, consistent errors, and integration tests.
 
+The listing API is versioned under `/api/v1`. Breaking API changes can be introduced under a future `/api/v2` prefix. `/health` is unversioned because it reports process status rather than a listing resource.
+
 ## Requirements
 
 - Node.js 22 or newer and npm
@@ -32,18 +34,18 @@ npm test
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/listings` | Create a listing |
-| `GET` | `/listings` | List listings, newest first |
-| `GET` | `/listings/:id` | Get one listing |
-| `PATCH` | `/listings/:id` | Update supplied fields |
-| `DELETE` | `/listings/:id` | Delete a listing |
-| `GET` | `/listings/search` | Search and sort by distance |
+| `POST` | `/api/v1/listings` | Create a listing |
+| `GET` | `/api/v1/listings` | List listings, newest first |
+| `GET` | `/api/v1/listings/:id` | Get one listing |
+| `PATCH` | `/api/v1/listings/:id` | Update supplied fields |
+| `DELETE` | `/api/v1/listings/:id` | Delete a listing |
+| `GET` | `/api/v1/listings/search` | Search and sort by distance |
 | `GET` | `/health` | Process health check |
 
 Create a listing:
 
 ```bash
-curl -X POST http://localhost:3000/listings \
+curl -X POST http://localhost:3000/api/v1/listings \
   -H 'Content-Type: application/json' \
   -d '{
     "title": "Three-bedroom apartment in Lekki",
@@ -60,12 +62,12 @@ curl -X POST http://localhost:3000/listings \
 Search within 5 km of a point, with optional filters:
 
 ```bash
-curl 'http://localhost:3000/listings/search?lat=6.4474&lng=3.4737&radiusKm=5&type=sale&minPrice=40000000&maxPrice=60000000&bedrooms=3&page=1&limit=20'
+curl 'http://localhost:3000/api/v1/listings/search?lat=6.4474&lng=3.4737&radiusKm=5&type=sale&minPrice=40000000&maxPrice=60000000&bedrooms=3&page=1&limit=20'
 ```
 
 `lat`, `lng`, and `radiusKm` are required for search. `type`, `minPrice`, `maxPrice`, and `bedrooms` are optional. Price bounds and the radius are inclusive; bedrooms is an exact match. Results are sorted by distance ascending, then ID for a stable tie break. Search results include `distanceKm`, rounded to three decimals for display. The radius comparison uses the unrounded distance.
 
-Both `GET /listings` and search accept `page` (default `1`) and `limit` (default `20`, maximum `100`). They return:
+Both `GET /api/v1/listings` and search accept `page` (default `1`) and `limit` (default `20`, maximum `100`). They return:
 
 ```json
 {
